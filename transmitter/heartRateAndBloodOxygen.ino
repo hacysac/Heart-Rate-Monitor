@@ -1,99 +1,203 @@
-/*
-  Optical SP02 Detection (SPK Algorithm) using the MAX30105 Breakout
-  By: Nathan Seidle @ SparkFun Electronics
-  Date: October 19th, 2016
-  https://github.com/sparkfun/MAX30105_Breakout
-
-  This demo shows heart rate and SPO2 levels.
-
-  It is best to attach the sensor to your finger using a rubber band or other tightening 
-  device. Humans are generally bad at applying constant pressure to a thing. When you 
-  press your finger against the sensor it varies enough to cause the blood in your 
-  finger to flow differently which causes the sensor readings to go wonky.
-
-  This example is based on MAXREFDES117 and RD117_LILYPAD.ino from Maxim. Their example
-  was modified to work with the SparkFun MAX30105 library and to compile under Arduino 1.6.11
-  Please see license file for more info.
-
-  Hardware Connections (Breakoutboard to Arduino):
-  -5V = 5V (3.3V is allowed)
-  -GND = GND
-  -SDA = A4 (or SDA)
-  -SCL = A5 (or SCL)
-  -INT = Not connected
- 
-  The MAX30105 Breakout can handle 5V or 3.3V I2C logic. We recommend powering the board with 5V
-  but it will also run at 3.3V.
-*/
-
 #include <Wire.h>
 #include "MAX30105.h"
-#include "spo2_algorithm.h"
+#include "spo2_algorithm.h"  // Maxim's HR and SpO2 algorithms
 
+// BLE Libraries
+#include <BLEDevice.h>
+#include <BLEServer.h>
+#include <BLEUtils.h>
+#include <BLE2902.h>
+
+// unique BLE ids, generate at uuidgenerator.net
+#define SERVICE_UUID "12345678-1234-5678-1234-56789abcdef0"
+#define CHAR_UUID    "12345678-1234-5678-1234-56789abcdef1"
+
+BLECharacteristic* pCharacteristic = NULL;
+bool deviceConnected = false;
 MAX30105 particleSensor;
 
 #define MAX_BRIGHTNESS 255
 
-#if defined(__AVR_ATmega328P__) || defined(__AVR_ATmega168__)
-//Arduino Uno doesn't have enough SRAM to store 100 samples of IR led data and red led data in 32-bit format
-//To solve this problem, 16-bit MSB of the sampled data will be truncated. Samples become 16-bit data.
-uint16_t irBuffer[100]; //infrared LED sensor data
-uint16_t redBuffer[100];  //red LED sensor data
-#else
-uint32_t irBuffer[100]; //infrared LED sensor data
-uint32_t redBuffer[100];  //red LED sensor data
-#endif
+// ESP32-C3 has enough memory for 32-bit samples
+uint32_t irBuffer[100]; // Infrared LED sensor data
+uint32_t redBuffer[100]; // Red LED sensor data
 
-int32_t bufferLength; //data length
-int32_t spo2; //SPO2 value
-int8_t validSPO2; //indicator to show if the SPO2 calculation is valid
-int32_t heartRate; //heart rate value
-int8_t validHeartRate; //indicator to show if the heart rate calculation is valid
+int32_t bufferLength; // Data length
+int32_t spo2; // SpO2 value
+int8_t validSPO2; // Indicator if SPO2 is valid
+int32_t heartRate; // Heart rate value
+int8_t validHeartRate; // Indicator if HR is valid
 
-byte pulseLED = 11; //Must be on PWM pin
-byte readLED = 13; //Blinks with each data read
+// Alert pin for vibration/buzzer
+#define ALERT_PIN 2
+#define HR_THRESHOLD_HIGH 100
+#define HR_THRESHOLD_LOW 50
 
-void setup()
-{
-  Serial.begin(115200); // initialize serial communication at 115200 bits per second:
+// BLE callbacks to handle connection events
+class MyServerCallbacks: public BLEServerCallbacks {
+    void onConnect(BLEServer* pServer) {
+      deviceConnected = true;
+      Serial.println("Connected via BLE!");
+    }
 
-  pinMode(pulseLED, OUTPUT);
-  pinMode(readLED, OUTPUT);
+    void onDisconnect(BLEServer* pServer) {
+      deviceConnected = false;
+      Serial.println("Disconnected from BLE!");
+    }
+};
 
-  // Initialize sensor
-  if (!particleSensor.begin(Wire, I2C_SPEED_FAST)) //Use default I2C port, 400kHz speed
-  {
-    Serial.println(F("MAX30105 was not found. Please check wiring/power."));
-    while (1);
-  }
-
-  Serial.println(F("Attach sensor to finger with rubber band. Press any key to start conversion"));
-  while (Serial.available() == 0) ; //wait until user presses a key
-  Serial.read();
-
-  byte ledBrightness = 60; //Options: 0=Off to 255=50mA
-  byte sampleAverage = 4; //Options: 1, 2, 4, 8, 16, 32
-  byte ledMode = 2; //Options: 1 = Red only, 2 = Red + IR, 3 = Red + IR + Green
-  byte sampleRate = 100; //Options: 50, 100, 200, 400, 800, 1000, 1600, 3200
-  int pulseWidth = 411; //Options: 69, 118, 215, 411
-  int adcRange = 4096; //Options: 2048, 4096, 8192, 16384
-
-  particleSensor.setup(ledBrightness, sampleAverage, ledMode, sampleRate, pulseWidth, adcRange); //Configure sensor with these settings
+//BLE setup
+void setupBLE() {
+  Serial.println("\nInitializing BLE...");
+  
+  // Create BLE Device
+  BLEDevice::init("HeartSensor");
+  Serial.println("BLE device: 'HeartSensor'");
+  
+  // Create BLE Server
+  BLEServer *pServer = BLEDevice::createServer();
+  pServer->setCallbacks(new MyServerCallbacks());
+  Serial.println("Server created");
+  
+  // Create BLE Service
+  BLEService *pService = pServer->createService(SERVICE_UUID);
+  Serial.println("Service created");
+  
+  // Create BLE Characteristic
+  pCharacteristic = pService->createCharacteristic(
+      CHAR_UUID,
+      BLECharacteristic::PROPERTY_READ |
+      BLECharacteristic::PROPERTY_NOTIFY
+  );
+  
+  // Add descriptor for notifications
+  pCharacteristic->addDescriptor(new BLE2902());
+  Serial.println("Characteristic created");
+  
+  // Start the service
+  pService->start();
+  Serial.println("Service started");
+  
+  // Start advertising
+  BLEAdvertising *pAdvertising = BLEDevice::getAdvertising();
+  pAdvertising->addServiceUUID(SERVICE_UUID);
+  pAdvertising->setScanResponse(false);
+  BLEDevice::startAdvertising();
+  Serial.println("Advertising started");
+  
+  Serial.println("BLE setup complete!\n");
 }
 
+//send BLE data
+void sendBLEData(int32_t hr, int32_t spo2) {
+  if (!deviceConnected) return;  // Only send if connected
+  
+  // HR and SpO2 into 8 bytes
+  uint8_t data[8];
+  
+  // Heart Rate (bytes 0-3)
+  data[0] = (hr >> 24) & 0xFF;
+  data[1] = (hr >> 16) & 0xFF;
+  data[2] = (hr >> 8) & 0xFF;
+  data[3] = hr & 0xFF;
+  
+  // SpO2 (bytes 4-7)
+  data[4] = (spo2 >> 24) & 0xFF;
+  data[5] = (spo2 >> 16) & 0xFF;
+  data[6] = (spo2 >> 8) & 0xFF;
+  data[7] = spo2 & 0xFF;
+  
+  // Send via BLE
+  pCharacteristic->setValue(data, 8);
+  pCharacteristic->notify();
+}
+
+// Check heart rate and trigger alerts
+void checkAndAlert(int32_t hr) {
+  if (hr > HR_THRESHOLD_HIGH) {
+    // High heart rate - triple buzz
+    for (int i = 0; i < 3; i++) {
+      digitalWrite(ALERT_PIN, HIGH);
+      delay(100);
+      digitalWrite(ALERT_PIN, LOW);
+      delay(100);
+    }
+    Serial.println("ALERT: High heart rate!");
+  }
+  else if (hr < HR_THRESHOLD_LOW && hr > 0) {
+    // Low heart rate - double buzz
+    for (int i = 0; i < 2; i++) {
+      digitalWrite(ALERT_PIN, HIGH);
+      delay(300);
+      digitalWrite(ALERT_PIN, LOW);
+      delay(300);
+    }
+    Serial.println("ALERT: Low heart rate!");
+  }
+}
+
+//runs one on initialization
+void setup()
+{
+  Serial.begin(115200);
+  delay(1000);
+  
+  Serial.println("XIAO Smart Wristband - Starting");
+
+  // Initialize alert pin (for vibration motor or buzzer)
+  pinMode(ALERT_PIN, OUTPUT);
+  digitalWrite(ALERT_PIN, LOW);
+  Serial.println("Alert pin initialized (GP2)");
+
+  // Initialize I2C on XIAO-specific pins
+  Wire.begin(4, 5);  // SDA=GP4, SCL=GP5
+  Serial.println("I2C initialized (SDA=GP4, SCL=GP5)");
+
+  // Initialize MAX30102 sensor
+  Serial.println("\nInitializing MAX30102 sensor...");
+  if (!particleSensor.begin(Wire, I2C_SPEED_FAST))
+  {
+    Serial.println("ERROR: MAX30102 not found!");
+    while (1);  // Stop here
+  }
+  Serial.println("MAX30102 found!");
+
+  Serial.println("Attach sensor to finger with rubber band");
+
+  Serial.read();
+
+  // Configure sensor
+  byte ledBrightness = 60; // Options: 0=Off to 255=50mA
+  byte sampleAverage = 4; // Options: 1, 2, 4, 8, 16, 32
+  byte ledMode = 2; // Options: 1=Red, 2=Red+IR, 3=Red+IR+Green
+  byte sampleRate = 100; // Options: 50, 100, 200, 400, 800, 1000, 1600, 3200
+  int pulseWidth = 411; // Options: 69, 118, 215, 411
+  int adcRange = 4096; // Options: 2048, 4096, 8192, 16384
+
+  particleSensor.setup(ledBrightness, sampleAverage, ledMode, sampleRate, pulseWidth, adcRange);
+  Serial.println("Sensor configured");
+  
+  // Setup BLE
+  setupBLE();
+  
+  Serial.println("READY! Collecting data: ");
+}
+
+//main loop
 void loop()
 {
-  bufferLength = 100; //buffer length of 100 stores 4 seconds of samples running at 25sps
+  bufferLength = 100; // Buffer stores 4 seconds at 25sps
 
-  //read the first 100 samples, and determine the signal range
+  //find first 100 values(buffer fill)
+  Serial.println("Collecting initial 100 samples...");
   for (byte i = 0 ; i < bufferLength ; i++)
   {
-    while (particleSensor.available() == false) //do we have new data?
-      particleSensor.check(); //Check the sensor for new data
+    while (particleSensor.available() == false)
+      particleSensor.check();
 
     redBuffer[i] = particleSensor.getRed();
     irBuffer[i] = particleSensor.getIR();
-    particleSensor.nextSample(); //We're finished with this sample so move to next sample
+    particleSensor.nextSample();
 
     Serial.print(F("red="));
     Serial.print(redBuffer[i], DEC);
@@ -101,32 +205,31 @@ void loop()
     Serial.println(irBuffer[i], DEC);
   }
 
-  //calculate heart rate and SpO2 after first 100 samples (first 4 seconds of samples)
+  //calc heart rate and SpO2 from 100 samples
+  Serial.println("\nCalculating heart rate and SpO2...\n");
   maxim_heart_rate_and_oxygen_saturation(irBuffer, bufferLength, redBuffer, &spo2, &validSPO2, &heartRate, &validHeartRate);
 
-  //Continuously taking samples from MAX30102.  Heart rate and SpO2 are calculated every 1 second
+  //continuous data collection
   while (1)
   {
-    //dumping the first 25 sets of samples in the memory and shift the last 75 sets of samples to the top
+    // Shift buffer: dump first 25 samples, move last 75 to top
     for (byte i = 25; i < 100; i++)
     {
       redBuffer[i - 25] = redBuffer[i];
       irBuffer[i - 25] = irBuffer[i];
     }
 
-    //take 25 sets of samples before calculating the heart rate.
+    // Take 25 new samples
     for (byte i = 75; i < 100; i++)
     {
-      while (particleSensor.available() == false) //do we have new data?
-        particleSensor.check(); //Check the sensor for new data
-
-      digitalWrite(readLED, !digitalRead(readLED)); //Blink onboard LED with every data read
+      while (particleSensor.available() == false)
+        particleSensor.check();
 
       redBuffer[i] = particleSensor.getRed();
       irBuffer[i] = particleSensor.getIR();
-      particleSensor.nextSample(); //We're finished with this sample so move to next sample
+      particleSensor.nextSample();
 
-      //send samples and calculation result to terminal program through UART
+      // Print samples
       Serial.print(F("red="));
       Serial.print(redBuffer[i], DEC);
       Serial.print(F(", ir="));
@@ -142,10 +245,30 @@ void loop()
       Serial.print(spo2, DEC);
 
       Serial.print(F(", SPO2Valid="));
-      Serial.println(validSPO2, DEC);
+      Serial.print(validSPO2, DEC);
+      
+      //check BLE connection status
+      Serial.print(F(", BLE="));
+      Serial.println(deviceConnected ? F("Connected") : F("Disconnected"));
     }
 
-    //After gathering 25 new samples recalculate HR and SP02
+    //recalc heart rate and SpO2
     maxim_heart_rate_and_oxygen_saturation(irBuffer, bufferLength, redBuffer, &spo2, &validSPO2, &heartRate, &validHeartRate);
+    
+    // send BLE data if valid
+    if (validHeartRate && validSPO2) {
+      sendBLEData(heartRate, spo2);
+      
+      Serial.print("\n📱 Sent to phone → HR: ");
+      Serial.print(heartRate);
+      Serial.print(" BPM | SpO2: ");
+      Serial.print(spo2);
+      Serial.println("%\n");
+    }
+    
+    // Check heart rate for alerts
+    if (validHeartRate) {
+      checkAndAlert(heartRate);
+    }
   }
 }
