@@ -1,0 +1,1064 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Heart Rate Monitor</title>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.js"></script>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            padding: 20px;
+        }
+
+        .container {
+            max-width: 1000px;
+            margin: 0 auto;
+            background: white;
+            border-radius: 20px;
+            box-shadow: 0 20px 60px rgba(0,0,0,0.3);
+            overflow: hidden;
+        }
+
+        .header {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            padding: 30px;
+            text-align: center;
+        }
+
+        .header h1 {
+            font-size: 32px;
+            margin-bottom: 10px;
+        }
+
+        .status {
+            font-size: 14px;
+            opacity: 0.9;
+        }
+
+        .content {
+            padding: 30px;
+        }
+
+        .card {
+            background: #f8f9fa;
+            border-radius: 12px;
+            padding: 20px;
+            margin-bottom: 20px;
+        }
+
+        .card h2 {
+            font-size: 20px;
+            margin-bottom: 15px;
+            color: #333;
+        }
+
+        .form-group {
+            margin-bottom: 15px;
+        }
+
+        label {
+            display: block;
+            font-weight: 600;
+            margin-bottom: 5px;
+            color: #555;
+        }
+
+        input, select {
+            width: 100%;
+            padding: 12px;
+            border: 2px solid #e0e0e0;
+            border-radius: 8px;
+            font-size: 16px;
+            transition: border-color 0.3s;
+        }
+
+        input:focus, select:focus {
+            outline: none;
+            border-color: #667eea;
+        }
+
+        button {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            border: none;
+            padding: 14px 28px;
+            border-radius: 8px;
+            font-size: 16px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: transform 0.2s, box-shadow 0.2s;
+            width: 100%;
+        }
+
+        button:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 5px 15px rgba(102, 126, 234, 0.4);
+        }
+
+        button:disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
+            transform: none;
+        }
+
+        .btn-secondary {
+            background: #6c757d;
+            margin-top: 10px;
+        }
+
+        .btn-danger {
+            background: #dc3545;
+        }
+
+        .readings {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 15px;
+            margin-bottom: 20px;
+        }
+
+        .reading-card {
+            background: white;
+            padding: 20px;
+            border-radius: 12px;
+            text-align: center;
+            border: 2px solid #e0e0e0;
+        }
+
+        .reading-label {
+            font-size: 14px;
+            color: #666;
+            margin-bottom: 5px;
+        }
+
+        .reading-value {
+            font-size: 36px;
+            font-weight: bold;
+            color: #667eea;
+        }
+
+        .reading-unit {
+            font-size: 16px;
+            color: #999;
+        }
+
+        .threshold-info {
+            background: #fff3cd;
+            border: 2px solid #ffc107;
+            border-radius: 8px;
+            padding: 15px;
+            margin-top: 15px;
+        }
+
+        .threshold-info p {
+            margin: 5px 0;
+            color: #856404;
+        }
+
+        .alert {
+            background: #f8d7da;
+            border: 2px solid #dc3545;
+            color: #721c24;
+            padding: 15px;
+            border-radius: 8px;
+            margin-bottom: 15px;
+            display: none;
+        }
+
+        .alert.show {
+            display: block;
+        }
+
+        .hidden {
+            display: none;
+        }
+
+        .stats-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+            gap: 15px;
+            margin-bottom: 20px;
+        }
+
+        .stat-box {
+            background: white;
+            padding: 15px;
+            border-radius: 8px;
+            text-align: center;
+            border: 2px solid #e0e0e0;
+        }
+
+        .stat-label {
+            font-size: 12px;
+            color: #666;
+            margin-bottom: 5px;
+        }
+
+        .stat-value {
+            font-size: 24px;
+            font-weight: bold;
+            color: #333;
+        }
+
+        .chart-container {
+            background: white;
+            padding: 20px;
+            border-radius: 12px;
+            margin-bottom: 20px;
+            height: 400px;
+            position: relative;
+        }
+
+        .chart-controls {
+            display: flex;
+            gap: 10px;
+            margin-bottom: 20px;
+            flex-wrap: wrap;
+        }
+
+        .btn-group {
+            display: flex;
+            gap: 5px;
+            flex: 1;
+            min-width: 200px;
+        }
+
+        .btn-filter {
+            flex: 1;
+            padding: 10px;
+            background: white;
+            color: #667eea;
+            border: 2px solid #667eea;
+            border-radius: 8px;
+            font-size: 14px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+
+        .btn-filter:hover {
+            background: #f0f0f0;
+        }
+
+        .btn-filter.active {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            border-color: transparent;
+        }
+
+        .export-buttons {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 10px;
+        }
+
+        @media (max-width: 600px) {
+            .readings {
+                grid-template-columns: 1fr;
+            }
+            
+            .chart-controls {
+                flex-direction: column;
+            }
+            
+            .btn-group {
+                width: 100%;
+            }
+            
+            .export-buttons {
+                grid-template-columns: 1fr;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>❤️ Heart Rate Monitor</h1>
+            <div class="status" id="status">Not Connected</div>
+        </div>
+
+        <div class="content">
+            <!-- Connection Section -->
+            <div class="card" id="connectionCard">
+                <h2>🔗 Connect Device</h2>
+                <button id="connectBtn" onclick="connectDevice()">Connect to PicoW-HR</button>
+            </div>
+
+            <!-- Setup Section (hidden until connected) -->
+            <div class="card hidden" id="setupCard">
+                <h2>⚙️ Device Setup</h2>
+                <div class="form-group">
+                    <label for="ageRange">Age Range:</label>
+                    <select id="ageRange" onchange="calculateThresholds()">
+                        <option value="">Select Age Range</option>
+                        <option value="18-25">18-25 years</option>
+                        <option value="26-35">26-35 years</option>
+                        <option value="36-45">36-45 years</option>
+                        <option value="46-55">46-55 years</option>
+                        <option value="56-65">56-65 years</option>
+                        <option value="66+">66+ years</option>
+                    </select>
+                </div>
+
+                <div class="form-group">
+                    <label for="activityLevel">Activity Level:</label>
+                    <select id="activityLevel" onchange="calculateThresholds()">
+                        <option value="">Select Activity Level</option>
+                        <option value="sedentary">Sedentary (Little to no exercise)</option>
+                        <option value="light">Light (Exercise 1-3 days/week)</option>
+                        <option value="moderate">Moderate (Exercise 3-5 days/week)</option>
+                        <option value="active">Active (Exercise 6-7 days/week)</option>
+                        <option value="athlete">Athlete (Very intense exercise)</option>
+                    </select>
+                </div>
+
+                <div class="threshold-info hidden" id="thresholdInfo">
+                    <p><strong>Calculated Thresholds:</strong></p>
+                    <p>Minimum Heart Rate: <strong id="calcMin">--</strong> bpm</p>
+                    <p>Maximum Heart Rate: <strong id="calcMax">--</strong> bpm</p>
+                </div>
+
+                <button onclick="saveSettings()" style="margin-top: 15px;">Save Settings</button>
+            </div>
+
+            <!-- Live Readings Section (hidden until connected) -->
+            <div class="card hidden" id="readingsCard">
+                <h2>📊 Live Readings</h2>
+                <div class="alert" id="alertBox">
+                    ⚠️ Heart rate is outside normal range!
+                </div>
+                <div class="readings">
+                    <div class="reading-card">
+                        <div class="reading-label">Heart Rate</div>
+                        <div class="reading-value" id="hrValue">--</div>
+                        <div class="reading-unit">bpm</div>
+                    </div>
+                    <div class="reading-card">
+                        <div class="reading-label">SpO2</div>
+                        <div class="reading-value" id="spo2Value">--</div>
+                        <div class="reading-unit">%</div>
+                    </div>
+                </div>
+                <button class="btn-danger" onclick="disconnectDevice()">Disconnect</button>
+            </div>
+
+            <!-- Statistics & Graph Section -->
+            <div class="card hidden" id="historyCard">
+                <h2>📈 Data Analysis</h2>
+                
+                <div class="stats-grid">
+                    <div class="stat-box">
+                        <div class="stat-label">Total Readings</div>
+                        <div class="stat-value" id="totalReadings">0</div>
+                    </div>
+                    <div class="stat-box">
+                        <div class="stat-label">Avg Heart Rate</div>
+                        <div class="stat-value" id="avgHR">--</div>
+                    </div>
+                    <div class="stat-box">
+                        <div class="stat-label">Avg SpO2</div>
+                        <div class="stat-value" id="avgSpO2">--</div>
+                    </div>
+                </div>
+
+                <div class="chart-controls">
+                    <div class="btn-group">
+                        <button class="btn-filter active" onclick="setMetric('hr')">Heart Rate</button>
+                        <button class="btn-filter" onclick="setMetric('spo2')">SpO2</button>
+                    </div>
+                    <div class="btn-group">
+                        <button class="btn-filter active" onclick="setTimeRange('day')">Day</button>
+                        <button class="btn-filter" onclick="setTimeRange('month')">Month</button>
+                        <button class="btn-filter" onclick="setTimeRange('year')">Year</button>
+                    </div>
+                </div>
+
+                <div class="chart-container">
+                    <canvas id="dataChart"></canvas>
+                </div>
+
+                <div class="export-buttons">
+                    <button class="btn-secondary" onclick="exportData()">Export Data as CSV</button>
+                    <button class="btn-danger" onclick="clearHistory()">Clear All History</button>
+                    <button class="btn-secondary hidden" onclick="resetDemo()" id="resetDemoBtn">Reset Demo Data</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // Global variables
+        let device = null;
+        let hrCharacteristic = null;
+        let spo2Characteristic = null;
+        let thresholdCharacteristic = null;
+        let deviceId = null;
+        let isConnected = false;
+        let hrMin = 50;
+        let hrMax = 120;
+        
+        // DEMO MODE
+        let demoMode = false;
+        let demoInterval = null;
+
+        // Chart variables
+        let chart = null;
+        let currentMetric = 'hr';
+        let currentTimeRange = 'day';
+
+        // IndexedDB setup
+        let db;
+        const DB_NAME = 'HeartRateDB';
+        const DB_VERSION = 1;
+        const STORE_NAME = 'readings';
+
+        function initDB() {
+            return new Promise((resolve, reject) => {
+                const request = indexedDB.open(DB_NAME, DB_VERSION);
+                
+                request.onerror = () => reject(request.error);
+                request.onsuccess = () => {
+                    db = request.result;
+                    resolve(db);
+                };
+                
+                request.onupgradeneeded = (event) => {
+                    const db = event.target.result;
+                    if (!db.objectStoreNames.contains(STORE_NAME)) {
+                        const objectStore = db.createObjectStore(STORE_NAME, { keyPath: 'id', autoIncrement: true });
+                        objectStore.createIndex('deviceId', 'deviceId', { unique: false });
+                        objectStore.createIndex('timestamp', 'timestamp', { unique: false });
+                    }
+                };
+            });
+        }
+
+        // Initialize DB and chart on load
+        initDB().then(() => {
+            initChart();
+        });
+
+        // Connect to device
+        async function connectDevice() {
+            const useDemo = confirm('Do you want to use DEMO MODE?\n\nClick OK for Demo Mode (no hardware needed)\nClick Cancel to connect to real Pico W');
+            
+            if (useDemo) {
+                startDemoMode();
+                return;
+            }
+
+            try {
+                document.getElementById('connectBtn').disabled = true;
+                document.getElementById('connectBtn').textContent = 'Connecting...';
+
+                device = await navigator.bluetooth.requestDevice({
+                    filters: [{ name: 'PicoW-HR' }],
+                    optionalServices: [
+                        0x180D,
+                        '6e400001-b5a3-f393-e0a9-e50e24dcca9e',
+                        '6e400003-b5a3-f393-e0a9-e50e24dcca9e'
+                    ]
+                });
+
+                deviceId = device.id;
+                const server = await device.gatt.connect();
+                
+                const hrService = await server.getPrimaryService(0x180D);
+                hrCharacteristic = await hrService.getCharacteristic(0x2A37);
+
+                const spo2Service = await server.getPrimaryService('6e400001-b5a3-f393-e0a9-e50e24dcca9e');
+                spo2Characteristic = await spo2Service.getCharacteristic('6e400002-b5a3-f393-e0a9-e50e24dcca9e');
+
+                const thresholdService = await server.getPrimaryService('6e400003-b5a3-f393-e0a9-e50e24dcca9e');
+                thresholdCharacteristic = await thresholdService.getCharacteristic('6e400004-b5a3-f393-e0a9-e50e24dcca9e');
+
+                hrCharacteristic.addEventListener('characteristicvaluechanged', handleHRChange);
+                await hrCharacteristic.startNotifications();
+
+                spo2Characteristic.addEventListener('characteristicvaluechanged', handleSpO2Change);
+                await spo2Characteristic.startNotifications();
+
+                loadDeviceSettings();
+                isConnected = true;
+                document.getElementById('status').textContent = `Connected to ${device.name}`;
+                updateUIConnected();
+                loadHistory();
+                device.addEventListener('gattserverdisconnected', onDisconnected);
+
+            } catch (error) {
+                console.error('Connection failed:', error);
+                alert('Failed to connect: ' + error.message);
+                document.getElementById('connectBtn').disabled = false;
+                document.getElementById('connectBtn').textContent = 'Connect to PicoW-HR';
+            }
+        }
+
+        // DEMO MODE
+        function startDemoMode() {
+            demoMode = true;
+            
+            // Use consistent demo device ID (persists across sessions)
+            let savedDemoId = localStorage.getItem('demo_device_id');
+            if (!savedDemoId) {
+                savedDemoId = 'demo-device-persistent';
+                localStorage.setItem('demo_device_id', savedDemoId);
+            }
+            deviceId = savedDemoId;
+            
+            isConnected = true;
+            document.getElementById('status').textContent = '🎭 Demo Mode (Simulated Data)';
+            
+            // Show reset demo button
+            document.getElementById('resetDemoBtn').classList.remove('hidden');
+            
+            updateUIConnected();
+            loadDeviceSettings();
+            loadHistory();
+            generateDemoData();
+        }
+
+        function generateDemoData() {
+            let currentHR = 75;
+            let currentSpO2 = 98;
+
+            demoInterval = setInterval(() => {
+                currentHR += (Math.random() - 0.5) * 5;
+                
+                if (Math.random() < 0.1) {
+                    currentHR = hrMin - 5;
+                } else if (Math.random() < 0.1) {
+                    currentHR = hrMax + 5;
+                }
+                
+                currentHR = Math.max(50, Math.min(180, currentHR));
+                currentSpO2 += (Math.random() - 0.5) * 2;
+                currentSpO2 = Math.max(95, Math.min(100, currentSpO2));
+
+                const hr = Math.round(currentHR);
+                const spo2 = Math.round(currentSpO2);
+                
+                document.getElementById('hrValue').textContent = hr;
+                document.getElementById('spo2Value').textContent = spo2;
+
+                const alertBox = document.getElementById('alertBox');
+                if (hr < hrMin || hr > hrMax) {
+                    alertBox.classList.add('show');
+                } else {
+                    alertBox.classList.remove('show');
+                }
+
+                storeReading(hr, spo2);
+            }, 1000);
+        }
+
+        function stopDemoMode() {
+            if (demoInterval) {
+                clearInterval(demoInterval);
+                demoInterval = null;
+            }
+            demoMode = false;
+        }
+
+        function resetDemo() {
+            if (!confirm('Clear demo device and start fresh?')) return;
+            
+            // Clear demo device ID
+            localStorage.removeItem('demo_device_id');
+            localStorage.removeItem(`device_${deviceId}`);
+            
+            // Clear all data for this device
+            const transaction = db.transaction([STORE_NAME], 'readwrite');
+            const objectStore = transaction.objectStore(STORE_NAME);
+            const index = objectStore.index('deviceId');
+            const request = index.openCursor(deviceId);
+
+            request.onsuccess = (event) => {
+                const cursor = event.target.result;
+                if (cursor) {
+                    cursor.delete();
+                    cursor.continue();
+                } else {
+                    // Disconnect
+                    disconnectDevice();
+                    alert('Demo reset! Connect again to start fresh.');
+                }
+            };
+        }
+
+        function updateUIConnected() {
+            document.getElementById('connectionCard').classList.add('hidden');
+            document.getElementById('setupCard').classList.remove('hidden');
+            document.getElementById('readingsCard').classList.remove('hidden');
+            document.getElementById('historyCard').classList.remove('hidden');
+        }
+
+        // Handle characteristic changes
+        function handleHRChange(event) {
+            const value = event.target.value;
+            const hr = value.getUint8(1);
+            
+            document.getElementById('hrValue').textContent = hr;
+
+            const alertBox = document.getElementById('alertBox');
+            if (hr < hrMin || hr > hrMax) {
+                alertBox.classList.add('show');
+            } else {
+                alertBox.classList.remove('show');
+            }
+
+            storeReading(hr, null);
+        }
+
+        function handleSpO2Change(event) {
+            const value = event.target.value;
+            const spo2 = value.getUint8(0);
+            document.getElementById('spo2Value').textContent = spo2;
+            storeReading(null, spo2);
+        }
+
+        // Calculate thresholds
+        function calculateThresholds() {
+            const ageRange = document.getElementById('ageRange').value;
+            const activityLevel = document.getElementById('activityLevel').value;
+
+            if (!ageRange || !activityLevel) return;
+
+            let avgAge;
+            switch(ageRange) {
+                case '18-25': avgAge = 21; break;
+                case '26-35': avgAge = 30; break;
+                case '36-45': avgAge = 40; break;
+                case '46-55': avgAge = 50; break;
+                case '56-65': avgAge = 60; break;
+                case '66+': avgAge = 70; break;
+            }
+
+            const maxHR = 220 - avgAge;
+
+            let minPercent;
+            switch(activityLevel) {
+                case 'sedentary': minPercent = 0.50; break;
+                case 'light': minPercent = 0.60; break;
+                case 'moderate': minPercent = 0.65; break;
+                case 'active': minPercent = 0.70; break;
+                case 'athlete': minPercent = 0.75; break;
+            }
+
+            const minHR = Math.round(maxHR * minPercent);
+
+            document.getElementById('calcMin').textContent = minHR;
+            document.getElementById('calcMax').textContent = maxHR;
+            document.getElementById('thresholdInfo').classList.remove('hidden');
+
+            hrMin = minHR;
+            hrMax = maxHR;
+        }
+
+        // Save settings
+        function saveSettings() {
+            if (!deviceId) {
+                alert('No device connected');
+                return;
+            }
+
+            const ageRange = document.getElementById('ageRange').value;
+            const activityLevel = document.getElementById('activityLevel').value;
+
+            if (!ageRange || !activityLevel) {
+                alert('Please select age range and activity level');
+                return;
+            }
+
+            const settings = {
+                ageRange,
+                activityLevel,
+                hrMin,
+                hrMax,
+                savedAt: new Date().toISOString()
+            };
+
+            localStorage.setItem(`device_${deviceId}`, JSON.stringify(settings));
+
+            if (thresholdCharacteristic && isConnected && !demoMode) {
+                const data = new Uint8Array([hrMin, hrMax]);
+                thresholdCharacteristic.writeValue(data)
+                    .then(() => {
+                        alert('Settings saved and sent to device!');
+                        loadHistory(); // Refresh chart with new thresholds
+                    })
+                    .catch(() => {
+                        alert('Settings saved locally, but failed to send to device');
+                        loadHistory();
+                    });
+            } else {
+                alert('Settings saved!' + (demoMode ? ' (Demo Mode)' : ''));
+                loadHistory(); // Refresh chart with new thresholds
+            }
+        }
+
+        function loadDeviceSettings() {
+            if (!deviceId) return;
+
+            const saved = localStorage.getItem(`device_${deviceId}`);
+            if (saved) {
+                const settings = JSON.parse(saved);
+                document.getElementById('ageRange').value = settings.ageRange;
+                document.getElementById('activityLevel').value = settings.activityLevel;
+                hrMin = settings.hrMin;
+                hrMax = settings.hrMax;
+                
+                document.getElementById('calcMin').textContent = hrMin;
+                document.getElementById('calcMax').textContent = hrMax;
+                document.getElementById('thresholdInfo').classList.remove('hidden');
+
+                if (thresholdCharacteristic && isConnected && !demoMode) {
+                    const data = new Uint8Array([hrMin, hrMax]);
+                    thresholdCharacteristic.writeValue(data);
+                }
+            }
+        }
+
+        // Store reading
+        let lastStoredTime = 0;
+        const STORE_INTERVAL = 5000;
+
+        function storeReading(hr, spo2) {
+            const now = Date.now();
+            
+            if (now - lastStoredTime < STORE_INTERVAL) return;
+            lastStoredTime = now;
+
+            const transaction = db.transaction([STORE_NAME], 'readwrite');
+            const objectStore = transaction.objectStore(STORE_NAME);
+
+            const currentHR = parseInt(document.getElementById('hrValue').textContent) || null;
+            const currentSpO2 = parseInt(document.getElementById('spo2Value').textContent) || null;
+
+            const reading = {
+                deviceId: deviceId,
+                timestamp: now,
+                heartRate: hr || currentHR,
+                spo2: spo2 || currentSpO2,
+                isNormal: (currentHR >= hrMin && currentHR <= hrMax)
+            };
+
+            objectStore.add(reading);
+
+            transaction.oncomplete = () => {
+                loadHistory();
+            };
+        }
+
+        // Load history and update chart
+        function loadHistory() {
+            if (!db || !deviceId) return;
+
+            const transaction = db.transaction([STORE_NAME], 'readonly');
+            const objectStore = transaction.objectStore(STORE_NAME);
+            const index = objectStore.index('deviceId');
+            const request = index.getAll(deviceId);
+
+            request.onsuccess = () => {
+                const readings = request.result;
+                readings.sort((a, b) => b.timestamp - a.timestamp);
+                updateStatistics(readings);
+                updateChart(readings);
+            };
+        }
+
+        function updateStatistics(readings) {
+            if (readings.length === 0) {
+                document.getElementById('totalReadings').textContent = '0';
+                document.getElementById('avgHR').textContent = '--';
+                document.getElementById('avgSpO2').textContent = '--';
+                return;
+            }
+
+            document.getElementById('totalReadings').textContent = readings.length;
+
+            const validHR = readings.filter(r => r.heartRate).map(r => r.heartRate);
+            const validSpO2 = readings.filter(r => r.spo2).map(r => r.spo2);
+
+            if (validHR.length > 0) {
+                const avgHR = validHR.reduce((sum, hr) => sum + hr, 0) / validHR.length;
+                document.getElementById('avgHR').textContent = Math.round(avgHR);
+            }
+
+            if (validSpO2.length > 0) {
+                const avgSpO2 = validSpO2.reduce((sum, spo2) => sum + spo2, 0) / validSpO2.length;
+                document.getElementById('avgSpO2').textContent = Math.round(avgSpO2);
+            }
+        }
+
+        // Chart functions
+        function initChart() {
+            const ctx = document.getElementById('dataChart').getContext('2d');
+            chart = new Chart(ctx, {
+                type: 'line',
+                data: {
+                    labels: [],
+                    datasets: [
+                        {
+                            label: 'Heart Rate (bpm)',
+                            data: [],
+                            borderColor: '#667eea',
+                            backgroundColor: 'rgba(102, 126, 234, 0.1)',
+                            tension: 0.4,
+                            fill: true,
+                            pointRadius: 3,
+                            pointHoverRadius: 5,
+                            order: 1
+                        },
+                        {
+                            label: 'Max Threshold',
+                            data: [],
+                            borderColor: '#dc3545',
+                            borderDash: [5, 5],
+                            borderWidth: 2,
+                            pointRadius: 0,
+                            fill: false,
+                            order: 2
+                        },
+                        {
+                            label: 'Min Threshold',
+                            data: [],
+                            borderColor: '#ffc107',
+                            borderDash: [5, 5],
+                            borderWidth: 2,
+                            pointRadius: 0,
+                            fill: false,
+                            order: 2
+                        }
+                    ]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    plugins: {
+                        legend: {
+                            display: true,
+                            position: 'top'
+                        },
+                        tooltip: {
+                            mode: 'index',
+                            intersect: false
+                        }
+                    },
+                    scales: {
+                        x: {
+                            display: true,
+                            title: {
+                                display: true,
+                                text: 'Time'
+                            }
+                        },
+                        y: {
+                            display: true,
+                            title: {
+                                display: true,
+                                text: 'Value'
+                            },
+                            beginAtZero: false
+                        }
+                    }
+                }
+            });
+        }
+
+        function updateChart(allReadings) {
+            if (!chart) return;
+
+            // Filter by time range
+            const now = Date.now();
+            let timeLimit;
+            
+            switch(currentTimeRange) {
+                case 'day':
+                    timeLimit = now - (24 * 60 * 60 * 1000);
+                    break;
+                case 'month':
+                    timeLimit = now - (30 * 24 * 60 * 60 * 1000);
+                    break;
+                case 'year':
+                    timeLimit = now - (365 * 24 * 60 * 60 * 1000);
+                    break;
+            }
+
+            const filteredReadings = allReadings.filter(r => r.timestamp >= timeLimit);
+            
+            // Sort by timestamp ascending
+            filteredReadings.sort((a, b) => a.timestamp - b.timestamp);
+
+            // Prepare data
+            const labels = filteredReadings.map(r => {
+                const date = new Date(r.timestamp);
+                if (currentTimeRange === 'day') {
+                    return date.toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'});
+                } else if (currentTimeRange === 'month') {
+                    return date.toLocaleDateString([], {month: 'short', day: 'numeric'}) + ' ' + date.toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'});
+                } else {
+                    return date.toLocaleDateString([], {month: 'short', day: 'numeric', year: 'numeric'});
+                }
+            });
+
+            const data = filteredReadings.map(r => {
+                return currentMetric === 'hr' ? r.heartRate : r.spo2;
+            });
+
+            // Update main dataset
+            chart.data.labels = labels;
+            chart.data.datasets[0].data = data;
+            chart.data.datasets[0].label = currentMetric === 'hr' ? 'Heart Rate (bpm)' : 'SpO2 (%)';
+            chart.data.datasets[0].borderColor = currentMetric === 'hr' ? '#667eea' : '#28a745';
+            chart.data.datasets[0].backgroundColor = currentMetric === 'hr' ? 'rgba(102, 126, 234, 0.1)' : 'rgba(40, 167, 69, 0.1)';
+            
+            // Update threshold lines (only for heart rate)
+            if (currentMetric === 'hr') {
+                // Show threshold lines
+                chart.data.datasets[1].data = Array(labels.length).fill(hrMax);
+                chart.data.datasets[1].hidden = false;
+                chart.data.datasets[2].data = Array(labels.length).fill(hrMin);
+                chart.data.datasets[2].hidden = false;
+                chart.data.datasets[1].label = `Max Threshold (${hrMax} bpm)`;
+                chart.data.datasets[2].label = `Min Threshold (${hrMin} bpm)`;
+            } else {
+                // Hide threshold lines for SpO2
+                chart.data.datasets[1].hidden = true;
+                chart.data.datasets[2].hidden = true;
+            }
+            
+            // Adjust y-axis range
+            if (currentMetric === 'spo2') {
+                chart.options.scales.y.min = 90;
+                chart.options.scales.y.max = 100;
+            } else {
+                chart.options.scales.y.min = undefined;
+                chart.options.scales.y.max = undefined;
+            }
+            
+            chart.update();
+        }
+
+        function setMetric(metric) {
+            currentMetric = metric;
+            
+            // Update button states
+            document.querySelectorAll('.chart-controls .btn-group:first-child .btn-filter').forEach(btn => {
+                btn.classList.remove('active');
+            });
+            event.target.classList.add('active');
+            
+            loadHistory();
+        }
+
+        function setTimeRange(range) {
+            currentTimeRange = range;
+            
+            // Update button states
+            document.querySelectorAll('.chart-controls .btn-group:last-child .btn-filter').forEach(btn => {
+                btn.classList.remove('active');
+            });
+            event.target.classList.add('active');
+            
+            loadHistory();
+        }
+
+        // Export data
+        function exportData() {
+            if (!db || !deviceId) return;
+
+            const transaction = db.transaction([STORE_NAME], 'readonly');
+            const objectStore = transaction.objectStore(STORE_NAME);
+            const index = objectStore.index('deviceId');
+            const request = index.getAll(deviceId);
+
+            request.onsuccess = () => {
+                const readings = request.result;
+                
+                if (readings.length === 0) {
+                    alert('No data to export');
+                    return;
+                }
+
+                let csv = 'Timestamp,Heart Rate (bpm),SpO2 (%),Status\n';
+                readings.forEach(r => {
+                    const date = new Date(r.timestamp);
+                    const status = r.isNormal ? 'Normal' : 'Alert';
+                    csv += `${date.toISOString()},${r.heartRate || ''},${r.spo2 || ''},${status}\n`;
+                });
+
+                const blob = new Blob([csv], { type: 'text/csv' });
+                const url = URL.createObjectURL(blob);
+                const a = document.createElement('a');
+                a.href = url;
+                a.download = `heart_rate_data_${new Date().toISOString().split('T')[0]}.csv`;
+                a.click();
+                URL.revokeObjectURL(url);
+            };
+        }
+
+        function clearHistory() {
+            if (!confirm('Are you sure you want to delete all history? This cannot be undone.')) {
+                return;
+            }
+
+            const transaction = db.transaction([STORE_NAME], 'readwrite');
+            const objectStore = transaction.objectStore(STORE_NAME);
+            const index = objectStore.index('deviceId');
+            const request = index.openCursor(deviceId);
+
+            request.onsuccess = (event) => {
+                const cursor = event.target.result;
+                if (cursor) {
+                    cursor.delete();
+                    cursor.continue();
+                } else {
+                    alert('History cleared!');
+                    loadHistory();
+                }
+            };
+        }
+
+        function disconnectDevice() {
+            if (demoMode) {
+                stopDemoMode();
+            }
+            
+            if (device && device.gatt.connected) {
+                device.gatt.disconnect();
+            } else {
+                onDisconnected();
+            }
+        }
+
+        function onDisconnected() {
+            stopDemoMode();
+            isConnected = false;
+            deviceId = null;
+            document.getElementById('status').textContent = 'Not Connected';
+            document.getElementById('connectionCard').classList.remove('hidden');
+            document.getElementById('setupCard').classList.add('hidden');
+            document.getElementById('readingsCard').classList.add('hidden');
+            document.getElementById('historyCard').classList.add('hidden');
+            document.getElementById('connectBtn').disabled = false;
+            document.getElementById('connectBtn').textContent = 'Connect to PicoW-HR';
+            document.getElementById('hrValue').textContent = '--';
+            document.getElementById('spo2Value').textContent = '--';
+            
+            // Hide reset demo button
+            document.getElementById('resetDemoBtn').classList.add('hidden');
+        }
+    </script>
+</body>
+</html>
