@@ -1,0 +1,517 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Heart Rate Monitor</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            padding: 20px;
+            margin: 0;
+        }
+        
+        .container {
+            max-width: 900px;
+            margin: 0 auto;
+            background: white;
+            border-radius: 15px;
+            padding: 30px;
+            box-shadow: 0 10px 30px rgba(0,0,0,0.3);
+        }
+        
+        h1 {
+            text-align: center;
+            color: #667eea;
+        }
+        
+        .status {
+            text-align: center;
+            color: #666;
+            margin-bottom: 20px;
+        }
+        
+        .card {
+            background: #f5f5f5;
+            padding: 20px;
+            border-radius: 10px;
+            margin-bottom: 20px;
+        }
+        
+        button {
+            background: #667eea;
+            color: white;
+            border: none;
+            padding: 12px 24px;
+            border-radius: 5px;
+            font-size: 16px;
+            cursor: pointer;
+            width: 100%;
+        }
+        
+        button:hover {
+            background: #5568d3;
+        }
+        
+        select {
+            width: 100%;
+            padding: 10px;
+            margin: 10px 0;
+            border-radius: 5px;
+            border: 1px solid #ddd;
+        }
+        
+        .readings {
+            display: flex;
+            gap: 20px;
+            justify-content: center;
+        }
+        
+        .reading {
+            text-align: center;
+            background: white;
+            padding: 20px;
+            border-radius: 10px;
+            min-width: 150px;
+        }
+        
+        .value {
+            font-size: 48px;
+            font-weight: bold;
+            color: #667eea;
+        }
+        
+        .alert {
+            background: #ffdddd;
+            border: 2px solid red;
+            padding: 15px;
+            border-radius: 5px;
+            margin-bottom: 15px;
+            display: none;
+        }
+        
+        .hidden {
+            display: none;
+        }
+        
+        img {
+            width: 100%;
+            border-radius: 10px;
+        }
+        
+        .filters {
+            display: flex;
+            gap: 10px;
+            margin: 15px 0;
+        }
+        
+        .filter-btn {
+            flex: 1;
+            background: white;
+            color: #667eea;
+            border: 2px solid #667eea;
+        }
+        
+        .filter-btn.active {
+            background: #667eea;
+            color: white;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>Heart Rate Monitor</h1>
+        <div class="status" id="status">Not Connected</div>
+
+        <!-- Connect -->
+        <div class="card" id="connectCard">
+            <button onclick="connect()">Connect Device</button>
+        </div>
+
+        <!-- Setup -->
+        <div class="card hidden" id="setupCard">
+            <h3>Setup</h3>
+            <select id="age" onchange="calc()">
+                <option value="">Age Range</option>
+                <option value="18-25">18-25</option>
+                <option value="26-35">26-35</option>
+                <option value="36-45">36-45</option>
+                <option value="46-55">46-55</option>
+                <option value="56-65">56-65</option>
+                <option value="66+">66+</option>
+            </select>
+            <select id="activity" onchange="calc()">
+                <option value="">Activity Level</option>
+                <option value="sedentary">Sedentary</option>
+                <option value="light">Light</option>
+                <option value="moderate">Moderate</option>
+                <option value="active">Active</option>
+                <option value="athlete">Athlete</option>
+            </select>
+            <p id="thresholds" style="display:none; margin-top:10px;">
+                Min: <span id="min">--</span> bpm | Max: <span id="max">--</span> bpm
+            </p>
+            <button onclick="saveSettings()">Save</button>
+        </div>
+
+        <!-- Live data -->
+        <div class="card hidden" id="liveCard">
+            <h3>Live Data</h3>
+            <div class="alert" id="alert">⚠️ Heart rate out of range!</div>
+            <div class="readings">
+                <div class="reading">
+                    <div>Heart Rate</div>
+                    <div class="value" id="hr">--</div>
+                    <div>bpm</div>
+                </div>
+                <div class="reading">
+                    <div>SpO2</div>
+                    <div class="value" id="spo2">--</div>
+                    <div>%</div>
+                </div>
+            </div>
+            <button onclick="disconnect()" style="background: red; margin-top: 15px;">Disconnect</button>
+        </div>
+
+        <!-- Stats -->
+        <div class="card hidden" id="statsCard">
+            <h3>Statistics</h3>
+            <p>Total: <span id="total">0</span> readings</p>
+            <p>Avg HR: <span id="avgHR">--</span> bpm</p>
+            <p>Avg SpO2: <span id="avgSpO2">--</span> %</p>
+            <p>Alerts: <span id="alerts">0</span></p>
+        </div>
+
+        <!-- Graph -->
+        <div class="card hidden" id="graphCard">
+            <h3>Graph</h3>
+            <div class="filters">
+                <button class="filter-btn active" id="hrBtn" onclick="setMetric('hr')">Heart Rate</button>
+                <button class="filter-btn" id="spo2Btn" onclick="setMetric('spo2')">SpO2</button>
+            </div>
+            <div class="filters">
+                <button class="filter-btn active" id="dayBtn" onclick="setTime('day')">Day</button>
+                <button class="filter-btn" id="monthBtn" onclick="setTime('month')">Month</button>
+                <button class="filter-btn" id="yearBtn" onclick="setTime('year')">Year</button>
+            </div>
+            <div id="graph">
+                <p style="text-align:center; padding:40px; color:#999;">No data yet</p>
+            </div>
+            <button onclick="refresh()" style="margin-top:10px;">Refresh Graph</button>
+        </div>
+
+        <!-- Export -->
+        <div class="card hidden" id="exportCard">
+            <button onclick="exportCSV()">Export CSV</button>
+            <button onclick="clearData()" style="background: red; margin-top:10px;">Clear Data</button>
+            <button onclick="resetDemo()" id="resetBtn" style="display:none; margin-top:10px;">Reset Demo</button>
+        </div>
+    </div>
+
+    <script>
+        let device, hrChar, spo2Char, thresholdChar;
+        let deviceId = null;
+        let connected = false;
+        let minHR = 50, maxHR = 120;
+        let demo = false;
+        let demoTimer = null;
+        let refreshTimer = null;
+        let metric = 'hr', timeRange = 'day';
+
+        async function connect() {
+            let useDemo = confirm('Use demo mode?');
+            
+            if (useDemo) {
+                demo = true;
+                deviceId = 'demo-device';
+                connected = true;
+                document.getElementById('status').textContent = 'Demo Mode';
+                document.getElementById('resetBtn').style.display = 'block';
+                showCards();
+                await loadSettings();
+                await updateStats();
+                await refresh();
+                startDemo();
+                startAutoRefresh();
+                return;
+            }
+
+            try {
+                device = await navigator.bluetooth.requestDevice({
+                    filters: [{ name: 'PicoW-HR' }],
+                    optionalServices: ['0x180D', '6e400001-b5a3-f393-e0a9-e50e24dcca9e', '6e400003-b5a3-f393-e0a9-e50e24dcca9e']
+                });
+
+                deviceId = device.id;
+                let server = await device.gatt.connect();
+                
+                let hrService = await server.getPrimaryService(0x180D);
+                hrChar = await hrService.getCharacteristic(0x2A37);
+
+                let spo2Service = await server.getPrimaryService('6e400001-b5a3-f393-e0a9-e50e24dcca9e');
+                spo2Char = await spo2Service.getCharacteristic('6e400002-b5a3-f393-e0a9-e50e24dcca9e');
+
+                let thService = await server.getPrimaryService('6e400003-b5a3-f393-e0a9-e50e24dcca9e');
+                thresholdChar = await thService.getCharacteristic('6e400004-b5a3-f393-e0a9-e50e24dcca9e');
+
+                hrChar.addEventListener('characteristicvaluechanged', e => {
+                    let hr = e.target.value.getUint8(1);
+                    document.getElementById('hr').textContent = hr;
+                    checkAlert(hr);
+                    save(hr, null);
+                });
+                await hrChar.startNotifications();
+
+                spo2Char.addEventListener('characteristicvaluechanged', e => {
+                    let spo2 = e.target.value.getUint8(0);
+                    document.getElementById('spo2').textContent = spo2;
+                    save(null, spo2);
+                });
+                await spo2Char.startNotifications();
+
+                connected = true;
+                document.getElementById('status').textContent = 'Connected';
+                showCards();
+                await loadSettings();
+                await updateStats();
+                await refresh();
+                startAutoRefresh();
+
+            } catch (err) {
+                alert('Connection failed: ' + err);
+            }
+        }
+
+        function startDemo() {
+            let hr = 75, spo2 = 98;
+            
+            demoTimer = setInterval(() => {
+                hr += (Math.random() - 0.5) * 5;
+                if (Math.random() < 0.1) hr = minHR - 5;
+                else if (Math.random() < 0.1) hr = maxHR + 5;
+                hr = Math.max(50, Math.min(180, hr));
+                
+                spo2 += (Math.random() - 0.5) * 2;
+                spo2 = Math.max(95, Math.min(100, spo2));
+
+                document.getElementById('hr').textContent = Math.round(hr);
+                document.getElementById('spo2').textContent = Math.round(spo2);
+                
+                checkAlert(Math.round(hr));
+                save(Math.round(hr), Math.round(spo2));
+            }, 1000);
+        }
+
+        function startAutoRefresh() {
+            console.log('Starting auto-refresh...');
+            
+            if (refreshTimer) {
+                clearInterval(refreshTimer);
+            }
+            
+            refreshTimer = setInterval(async () => {
+                console.log('Auto-refreshing graph...');
+                await updateStats();
+                await refresh();
+            }, 15000);  // Every 15 seconds for better visibility
+        }
+
+        function checkAlert(hr) {
+            if (hr < minHR || hr > maxHR) {
+                document.getElementById('alert').style.display = 'block';
+            } else {
+                document.getElementById('alert').style.display = 'none';
+            }
+        }
+
+        function showCards() {
+            document.getElementById('connectCard').classList.add('hidden');
+            document.getElementById('setupCard').classList.remove('hidden');
+            document.getElementById('liveCard').classList.remove('hidden');
+            document.getElementById('statsCard').classList.remove('hidden');
+            document.getElementById('graphCard').classList.remove('hidden');
+            document.getElementById('exportCard').classList.remove('hidden');
+        }
+
+        async function calc() {
+            let age = document.getElementById('age').value;
+            let activity = document.getElementById('activity').value;
+            
+            if (!age || !activity) return;
+
+            let res = await fetch('/api/calculate', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({ageRange: age, activityLevel: activity})
+            });
+            
+            let data = await res.json();
+            minHR = data.minHR;
+            maxHR = data.maxHR;
+            
+            document.getElementById('min').textContent = minHR;
+            document.getElementById('max').textContent = maxHR;
+            document.getElementById('thresholds').style.display = 'block';
+        }
+
+        async function saveSettings() {
+            let age = document.getElementById('age').value;
+            let activity = document.getElementById('activity').value;
+            
+            if (!age || !activity) {
+                alert('Select age and activity');
+                return;
+            }
+
+            await fetch('/api/settings', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({deviceId, ageRange: age, activityLevel: activity, minHR, maxHR})
+            });
+
+            if (thresholdChar && connected && !demo) {
+                await thresholdChar.writeValue(new Uint8Array([minHR, maxHR]));
+            }
+            
+            alert('Saved!');
+            await refresh();
+        }
+
+        async function loadSettings() {
+            let res = await fetch(`/api/settings/${deviceId}`);
+            let data = await res.json();
+            
+            if (data.settings) {
+                document.getElementById('age').value = data.settings.ageRange;
+                document.getElementById('activity').value = data.settings.activityLevel;
+                minHR = data.settings.minHR;
+                maxHR = data.settings.maxHR;
+                document.getElementById('min').textContent = minHR;
+                document.getElementById('max').textContent = maxHR;
+                document.getElementById('thresholds').style.display = 'block';
+                
+                if (thresholdChar && connected && !demo) {
+                    await thresholdChar.writeValue(new Uint8Array([minHR, maxHR]));
+                }
+            }
+        }
+
+        let lastSave = 0;
+        async function save(hr, spo2) {
+            let now = Date.now();
+            if (now - lastSave < 5000) return;
+            lastSave = now;
+
+            let currentHR = parseInt(document.getElementById('hr').textContent) || null;
+            let currentSpO2 = parseInt(document.getElementById('spo2').textContent) || null;
+
+            await fetch('/api/reading', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({
+                    deviceId,
+                    timestamp: now,
+                    heartRate: hr || currentHR,
+                    spo2: spo2 || currentSpO2,
+                    minHR,
+                    maxHR,
+                    isNormal: (currentHR >= minHR && currentHR <= maxHR) ? 1 : 0
+                })
+            });
+        }
+
+        async function updateStats() {
+            if (!deviceId) return;
+            
+            let res = await fetch(`/api/stats/${deviceId}`);
+            let stats = await res.json();
+            
+            document.getElementById('total').textContent = stats.totalReadings;
+            document.getElementById('avgHR').textContent = stats.avgHR || '--';
+            document.getElementById('avgSpO2').textContent = stats.avgSpO2 || '--';
+            document.getElementById('alerts').textContent = stats.alerts;
+        }
+
+        function setMetric(m) {
+            metric = m;
+            document.getElementById('hrBtn').classList.remove('active');
+            document.getElementById('spo2Btn').classList.remove('active');
+            event.target.classList.add('active');
+            refresh();
+        }
+
+        function setTime(t) {
+            timeRange = t;
+            document.getElementById('dayBtn').classList.remove('active');
+            document.getElementById('monthBtn').classList.remove('active');
+            document.getElementById('yearBtn').classList.remove('active');
+            event.target.classList.add('active');
+            refresh();
+        }
+
+        async function refresh() {
+            if (!deviceId) return;
+            
+            console.log(`Refreshing graph: ${metric} / ${timeRange}`);
+            
+            document.getElementById('graph').innerHTML = '<p style="text-align:center; padding:40px;">Loading...</p>';
+            
+            let img = document.createElement('img');
+            img.src = `/api/graph/${deviceId}/${metric}/${timeRange}?t=${Date.now()}`;
+            
+            img.onerror = () => {
+                console.log('Graph load failed - no data');
+                document.getElementById('graph').innerHTML = '<p style="text-align:center; padding:40px; color:#999;">No data</p>';
+            };
+            
+            img.onload = () => {
+                console.log('Graph loaded successfully');
+                document.getElementById('graph').innerHTML = '';
+                document.getElementById('graph').appendChild(img);
+            };
+        }
+
+        function exportCSV() {
+            window.location.href = `/api/export/${deviceId}`;
+        }
+
+        async function clearData() {
+            if (!confirm('Delete everything?')) return;
+            await fetch(`/api/clear/${deviceId}`, {method: 'DELETE'});
+            alert('Cleared!');
+            await updateStats();
+            await refresh();
+        }
+
+        async function resetDemo() {
+            if (!confirm('Reset demo?')) return;
+            await fetch(`/api/clear/${deviceId}`, {method: 'DELETE'});
+            disconnect();
+            alert('Reset!');
+        }
+
+        function disconnect() {
+            if (demoTimer) {
+                clearInterval(demoTimer);
+                demoTimer = null;
+            }
+            if (refreshTimer) {
+                clearInterval(refreshTimer);
+                refreshTimer = null;
+            }
+            if (device && device.gatt.connected) device.gatt.disconnect();
+            
+            demo = false;
+            connected = false;
+            deviceId = null;
+            document.getElementById('status').textContent = 'Not Connected';
+            document.getElementById('connectCard').classList.remove('hidden');
+            document.getElementById('setupCard').classList.add('hidden');
+            document.getElementById('liveCard').classList.add('hidden');
+            document.getElementById('statsCard').classList.add('hidden');
+            document.getElementById('graphCard').classList.add('hidden');
+            document.getElementById('exportCard').classList.add('hidden');
+            document.getElementById('resetBtn').style.display = 'none';
+        }
+    </script>
+</body>
+</html>
