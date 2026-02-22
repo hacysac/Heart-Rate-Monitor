@@ -141,41 +141,43 @@ class HeartRateMonitor:
         
         return None
 
-# Handle threshold changes from app
-async def threshold_handler(threshold_char):
+# handles threshold updates
+async def threshold_task(threshold_char):
     global HR_MIN, HR_MAX
-    
-    while True:
-        try:
-            connection, data = await threshold_char.written()
-            if len(data) >= 2:
-                new_min = data[0]
-                new_max = data[1]
-                if 30 <= new_min <= 200 and 30 <= new_max <= 200 and new_min < new_max:
-                    HR_MIN = new_min
-                    HR_MAX = new_max
-                    print(f"Updated limits: {HR_MIN}-{HR_MAX}")
-        except:
-            await asyncio.sleep(1)
 
-# BLE advertising
-async def ble_task(threshold_char):
     while True:
         print("Waiting for connection...")
         async with await aioble.advertise(
             250_000,
             name="PicoW-HR",
             services=[HR_SERVICE_UUID, SPO2_SERVICE_UUID, THRESHOLD_SERVICE_UUID]
-        ) as connection:
+        ):
             print("Connected!")
-            # Send current limits
+            
+            # Send current limits to phone on connect
             data = struct.pack("BB", HR_MIN, HR_MAX)
             threshold_char.write(data, send_update=True)
             
-            try:
-                await connection.disconnected()
-            except:
-                pass
+            # Now listen for threshold updates until disconnected
+            while True:
+                try:
+                    # Wait up to 1 second for a write, then loop and check connection
+                    _, data = await asyncio.wait_for(threshold_char.written(), timeout=1.0)
+                    
+                    if len(data) >= 2:
+                        new_min = data[0]
+                        new_max = data[1]
+                        # check that found values are reasonable before updating
+                        if 30 <= new_min <= 200 and 30 <= new_max <= 200 and new_min < new_max:
+                            HR_MIN = new_min
+                            HR_MAX = new_max
+                            print(f"Updated limits: {HR_MIN}-{HR_MAX}")
+                except asyncio.TimeoutError:
+                    pass  # No write received, just loop back and check connection
+                except Exception as e:
+                    print(f"BLE error: {e}")
+                    break
+            
             print("Disconnected")
 
 # Main sensor reading
@@ -191,6 +193,7 @@ async def sensor_task(hr_char, spo2_char):
             sensor.check()
             
             if sensor.available():
+                # Remove old readings
                 red = sensor.pop_red_from_storage()
                 ir = sensor.pop_ir_from_storage()
                 
@@ -251,13 +254,10 @@ async def main():
     aioble.register_services(hr_service, spo2_service, threshold_service)
     
     # Run everything
-    tasks = [
-        asyncio.create_task(ble_task(threshold_char)),
-        asyncio.create_task(sensor_task(hr_char, spo2_char)),
-        asyncio.create_task(threshold_handler(threshold_char))
-    ]
+    task1 = asyncio.create_task(threshold_task(threshold_char))
+    task2 = asyncio.create_task(sensor_task(hr_char, spo2_char))
     
-    await asyncio.gather(*tasks)
+    await asyncio.gather(task1, task2)
 
 # Start
 try:
