@@ -25,6 +25,9 @@ buzzer.value(0)
 HR_MIN = 50
 HR_MAX = 120
 
+# Threshold for no finger detected based on ir values
+NO_FINGER_THRESHOLD = 50000  # TODO
+
 # BLE services
 HR_SERVICE_UUID = bluetooth.UUID(0x180D)
 HR_CHAR_UUID = bluetooth.UUID(0x2A37)
@@ -196,6 +199,19 @@ async def sensor_task(hr_char, spo2_char):
                 # Remove old readings
                 red = sensor.pop_red_from_storage()
                 ir = sensor.pop_ir_from_storage()
+
+                # Check for no finger condition
+                if ir < NO_FINGER_THRESHOLD:
+                    print("No finger detected")
+                    buzzer_on = False  # Don't alert if no finger, just wait for valid readings
+                    # reset monitor to not polute readings with false data
+                    hr_monitor = HeartRateMonitor(
+                        sample_rate=100,
+                        window_size=50,
+                        smoothing_window=5
+                    )
+                    await asyncio.sleep_ms(500)
+                    continue #skip the rest of the loop and wait for next reading
                 
                 # Add samples to monitor (both IR and Red)
                 hr_monitor.add_sample(ir, red)
@@ -257,9 +273,10 @@ async def main():
     task1 = asyncio.create_task(threshold_task(threshold_char))
     task2 = asyncio.create_task(sensor_task(hr_char, spo2_char))
     
+    # Async allows both tasks to run at the same time (more efficient)
     await asyncio.gather(task1, task2)
 
-# Start
+# run the full program until a keyboard interrupt
 try:
     asyncio.run(main())
 except KeyboardInterrupt:
