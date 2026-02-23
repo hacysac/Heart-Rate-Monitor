@@ -267,11 +267,11 @@ async def main():
     
     aioble.register_services(hr_service, spo2_service, threshold_service)
     
-    # Run everything
+    # create async tasks
     task1 = asyncio.create_task(threshold_task(threshold_char))
     task2 = asyncio.create_task(sensor_task(hr_char, spo2_char))
     
-    # Async allows both tasks to run at the same time (more efficient)
+    # run everything (async allows both tasks to run at the same time, more efficient)
     await asyncio.gather(task1, task2)
 
 # run the full program until a keyboard interrupt
