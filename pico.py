@@ -1,4 +1,4 @@
-from machine import Pin, SoftI2C
+from machine import Pin, SoftI2C, PWM
 import asyncio
 import aioble
 import bluetooth
@@ -18,8 +18,9 @@ sensor.set_active_leds_amplitude(MAX30105_PULSE_AMP_MEDIUM)
 
 # Buzzer setup
 BUZZER_PIN = 0 #TODO
-buzzer = Pin(BUZZER_PIN, Pin.OUT)
-buzzer.value(0)
+buzzer = PWM(Pin(BUZZER_PIN))
+buzzer.freq(1000)   # TODO: tone frequency
+buzzer.duty_u16(0)  # start off
 
 # Heart rate limits (update from app)
 HR_MIN = 50
@@ -157,11 +158,7 @@ async def threshold_task(threshold_char):
         ):
             print("Connected!")
             
-            # Send current limits to phone on connect
-            data = struct.pack("BB", HR_MIN, HR_MAX)
-            threshold_char.write(data, send_update=True)
-            
-            # Now listen for threshold updates until disconnected
+            # listen for threshold updates until disconnected
             while True:
                 try:
                     # Wait up to 1 second for a write, then loop and check connection
@@ -203,7 +200,8 @@ async def sensor_task(hr_char, spo2_char):
                 # Check for no finger condition
                 if ir < NO_FINGER_THRESHOLD:
                     print("No finger detected")
-                    buzzer_on = False  # Don't alert if no finger, just wait for valid readings
+                    buzzer_on = False  # Don't alert if no finger
+                    
                     # reset monitor to not polute readings with false data
                     hr_monitor = HeartRateMonitor(
                         sample_rate=100,
@@ -241,12 +239,12 @@ async def sensor_task(hr_char, spo2_char):
             
             # Buzzer control
             if buzzer_on:
-                buzzer.value(1)
+                buzzer.duty_u16(32768) # TODO
                 await asyncio.sleep_ms(200)
-                buzzer.value(0)
+                buzzer.duty_u16(0) # off
                 await asyncio.sleep_ms(200)
             else:
-                buzzer.value(0)
+                buzzer.duty_u16(0) # off
                 await asyncio.sleep_ms(50)
 
         # Catch errors     
@@ -281,4 +279,4 @@ try:
     asyncio.run(main())
 except KeyboardInterrupt:
     print("Stopped")
-    buzzer.value(0)
+    buzzer.duty_u16(0) # off
