@@ -1,0 +1,190 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>Heart Rate Monitor</title>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/chartjs-adapter-date-fns"></script>
+</head>
+<body>
+
+<h2>Settings</h2>
+
+Age Range:
+<select id="Age">
+  <option value="">-- select --</option>
+  <option value="18-25">18–25</option>
+  <option value="26-35">26–35</option>
+  <option value="36-45">36–45</option>
+  <option value="46-55">46–55</option>
+  <option value="56-65">56–65</option>
+  <option value="65+">65+</option>
+</select>
+
+&nbsp;&nbsp;
+
+Activity Level:
+<select id="Activity">
+  <option value="">-- select --</option>
+  <option value="sedentary">Sedentary</option>
+  <option value="light">Light</option>
+  <option value="moderate">Moderate</option>
+  <option value="active">Active</option>
+  <option value="very_active">Very Active</option>
+</select>
+
+&nbsp;&nbsp;
+
+<button onclick="saveSettings()">Save Settings</button>
+
+<p id="settingsStatus"></p>
+
+<h2>Heart Rate (BPM)</h2>
+<canvas id="bpmChart"></canvas>
+
+<h2>Blood Oxygen (SpO2 %)</h2>
+<canvas id="spo2Chart"></canvas>
+
+<p id="status"></p>
+
+<script>
+  const BASE_ID = "appDlLYVrXfd9nmKj";
+  const TOKEN = "patGz4JcukRlR4LvJ.4dfda0a68e64d255546261075196ebf4af726ee167081dbfe18ae59e6e7c14a8";
+  const DATA_URL = `https://api.airtable.com/v0/${BASE_ID}/data?sort[0][field]=Timestamp&sort[0][direction]=asc`;
+  const SETTINGS_URL = `https://api.airtable.com/v0/${BASE_ID}/settings`;
+
+  let bpmChart, spo2Chart;
+
+  async function loadSettings() {
+    try {
+      const res = await fetch(SETTINGS_URL, {
+        headers: { Authorization: `Bearer ${TOKEN}` }
+      });
+      const data = await res.json();
+      if (data.records && data.records.length > 0) {
+        const f = data.records[0].fields;
+        if (f.Age) document.getElementById("Age").value = f.Age;
+        if (f.Activity) document.getElementById("Activity").value = f.Activity;
+        document.getElementById("settingsStatus").textContent = "Loaded saved settings.";
+      }
+    } catch (err) {
+      console.log("Could not load settings:", err.message);
+    }
+  }
+
+  async function saveSettings() {
+    const ageRange = document.getElementById("Age").value;
+    const activityLevel = document.getElementById("Activity").value;
+
+    if (!ageRange || !activityLevel) {
+      document.getElementById("settingsStatus").textContent = "Please select both fields.";
+      return;
+    }
+
+    try {
+      const getRes = await fetch(SETTINGS_URL, {
+        headers: { Authorization: `Bearer ${TOKEN}` }
+      });
+      const getData = await getRes.json();
+
+      const fields = { Age: ageRange, Activity: activityLevel };
+
+      if (getData.records && getData.records.length > 0) {
+        const recordId = getData.records[0].id;
+        await fetch(`${SETTINGS_URL}/${recordId}`, {
+          method: "PATCH",
+          headers: { Authorization: `Bearer ${TOKEN}`, "Content-Type": "application/json" },
+          body: JSON.stringify({ fields })
+        });
+      } else {
+        await fetch(SETTINGS_URL, {
+          method: "POST",
+          headers: { Authorization: `Bearer ${TOKEN}`, "Content-Type": "application/json" },
+          body: JSON.stringify({ records: [{ fields }] })
+        });
+      }
+
+      document.getElementById("settingsStatus").textContent = "Saved! Pico will calculate min/max on next poll.";
+
+    } catch (err) {
+      document.getElementById("settingsStatus").textContent = "Error saving: " + err.message;
+    }
+  }
+
+  async function loadData() {
+    try {
+      const response = await fetch(DATA_URL, {
+        headers: { Authorization: `Bearer ${TOKEN}` }
+      });
+
+      const data = await response.json();
+      const bpmPoints = [], spo2Points = [];
+
+      data.records.forEach(record => {
+        const f = record.fields;
+        if (f.BPM !== undefined && f.SpO2 !== undefined && f.Timestamp) {
+          // Parse ISO timestamp from Pico — treat as local time
+          const ts = new Date(f.Timestamp);
+          bpmPoints.push({ x: ts, y: f.BPM });
+          spo2Points.push({ x: ts, y: f.SpO2 });
+        }
+      });
+
+      document.getElementById("status").textContent = "Last updated: " + new Date().toLocaleTimeString();
+
+      updateChart("bpmChart", bpmPoints, "BPM", "red");
+      updateChart("spo2Chart", spo2Points, "SpO2 %", "blue");
+
+    } catch (err) {
+      document.getElementById("status").textContent = "Error: " + err.message;
+    }
+  }
+
+  function updateChart(canvasId, points, label, color) {
+    const ctx = document.getElementById(canvasId).getContext("2d");
+    const chartData = {
+      datasets: [{
+        label,
+        data: points,
+        borderColor: color,
+        fill: false,
+        tension: 0.3
+      }]
+    };
+    const options = {
+      scales: {
+        x: {
+          type: "time",
+          time: {
+            tooltipFormat: "dd/MM/yyyy HH:mm:ss",
+            displayFormats: {
+              second: "HH:mm:ss",
+              minute: "HH:mm",
+              hour: "dd/MM HH:mm",
+              day: "dd/MM/yyyy"
+            }
+          },
+          ticks: {
+            maxTicksLimit: 8,
+            maxRotation: 45,
+            minRotation: 45
+          }
+        }
+      }
+    };
+
+    if (canvasId === "bpmChart") {
+      if (bpmChart) { bpmChart.data = chartData; bpmChart.update(); }
+      else bpmChart = new Chart(ctx, { type: "line", data: chartData, options });
+    } else {
+      if (spo2Chart) { spo2Chart.data = chartData; spo2Chart.update(); }
+      else spo2Chart = new Chart(ctx, { type: "line", data: chartData, options });
+    }
+  }
+
+  loadSettings();
+  loadData();
+  setInterval(loadData, 10000);
+</script>
+
+</body>
+</html>

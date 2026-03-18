@@ -1,43 +1,57 @@
 from machine import Pin, SoftI2C, PWM
-import asyncio
-import aioble
-import bluetooth
-import struct
 from max30102 import MAX30102, MAX30105_PULSE_AMP_MEDIUM
-from time import ticks_ms, ticks_diff
+from time import ticks_ms, ticks_diff, time
+import network
+import urequests
+import json
+
+# Wifi settings
+wifi_name = "Galaxy A33 5GD612" #TODO: hotspot
+wifi_password = "wnra0297" #TODO: hotspot
+
+# Airtable settings
+api_token = "patGz4JcukRlR4LvJ.4dfda0a68e64d255546261075196ebf4af726ee167081dbfe18ae59e6e7c14a8"
+data_url = "https://api.airtable.com/v0/appDlLYVrXfd9nmKj/data"
+settings_url = "https://api.airtable.com/v0/appDlLYVrXfd9nmKj/settings"
+
+headers = {
+    "Authorization": "Bearer " + api_token,
+    "Content-Type": "application/json"
+}
+
+# Connect to WiFi
+wifi = network.WLAN(network.STA_IF)
+wifi.active(True)
+wifi.connect(wifi_name, wifi_password)
+
+#wait until wifi connects (will freeze here until connection is successful)
+while not wifi.isconnected():
+    time.sleep(1)
+
 
 # I2C and sensor setup
-I2C_SDA = 4 #TODO
-I2C_SCL = 5 #TODO
+I2C_SDA = 18 #TODO gpio pin
+I2C_SCL = 17 #TODO gpio pin
 i2c = SoftI2C(sda=Pin(I2C_SDA), scl=Pin(I2C_SCL), freq=400000)
 sensor = MAX30102(i2c=i2c)
+i2c.scan()
 sensor.setup_sensor()
 sensor.set_sample_rate(400)
 sensor.set_fifo_average(8)
 sensor.set_active_leds_amplitude(MAX30105_PULSE_AMP_MEDIUM)
 
 # Buzzer setup
-BUZZER_PIN = 0 #TODO
+BUZZER_PIN = 15 #TODO gpio pin
 buzzer = PWM(Pin(BUZZER_PIN))
 buzzer.freq(1000)   # TODO: tone frequency
 buzzer.duty_u16(0)  # start off
 
 # Heart rate limits (update from app)
-HR_MIN = 50
-HR_MAX = 120
+hr_min = 50
+hr_max = 120
 
 # Threshold for no finger detected based on ir values
-NO_FINGER_THRESHOLD = 50000  # TODO
-
-# BLE services
-HR_SERVICE_UUID = bluetooth.UUID(0x180D)
-HR_CHAR_UUID = bluetooth.UUID(0x2A37)
-
-SPO2_SERVICE_UUID = bluetooth.UUID("6e400001-b5a3-f393-e0a9-e50e24dcca9e")
-SPO2_CHAR_UUID = bluetooth.UUID("6e400002-b5a3-f393-e0a9-e50e24dcca9e")
-
-THRESHOLD_SERVICE_UUID = bluetooth.UUID("6e400003-b5a3-f393-e0a9-e50e24dcca9e")
-THRESHOLD_CHAR_UUID = bluetooth.UUID("6e400004-b5a3-f393-e0a9-e50e24dcca9e")
+no_finger_threshold = 2000  # TODO
 
 # Class to handle heart rate and SpO2 calculations
 class HeartRateMonitor:
@@ -144,139 +158,151 @@ class HeartRateMonitor:
             return int(spo2)
         
         return None
-
-# handles threshold updates
-async def threshold_task(threshold_char):
-    global HR_MIN, HR_MAX
-
-    while True:
-        print("Waiting for connection...")
-        async with await aioble.advertise(
-            250_000,
-            name="PicoW-HR",
-            services=[HR_SERVICE_UUID, SPO2_SERVICE_UUID, THRESHOLD_SERVICE_UUID]
-        ):
-            print("Connected!")
-            
-            # listen for threshold updates until disconnected
-            while True:
-                try:
-                    # Wait up to 1 second for a write, then loop and check connection
-                    _, data = await asyncio.wait_for(threshold_char.written(), timeout=1.0)
-                    
-                    if len(data) >= 2:
-                        new_min = data[0]
-                        new_max = data[1]
-                        # check that found values are reasonable before updating
-                        if 30 <= new_min <= 200 and 30 <= new_max <= 200 and new_min < new_max:
-                            HR_MIN = new_min
-                            HR_MAX = new_max
-                            print(f"Updated limits: {HR_MIN}-{HR_MAX}")
-                except asyncio.TimeoutError:
-                    pass  # No write received, just loop back and check connection
-                except Exception as e:
-                    print(f"BLE error: {e}")
-                    break
-            
-            print("Disconnected")
-
-# Main sensor reading
-async def sensor_task(hr_char, spo2_char):
-    # Create monitor
-    hr_monitor = HeartRateMonitor(sample_rate=100, window_size=50, smoothing_window=5)
     
-    buzzer_on = False
-    
-    while True:
-        try:
-            # Check if sensor has data
-            sensor.check()
-            
-            if sensor.available():
-                # Remove old readings
-                red = sensor.pop_red_from_storage()
-                ir = sensor.pop_ir_from_storage()
+# Function to send data
+def send_data(bpm, spo2):
 
-                # Check for no finger condition
-                if ir < NO_FINGER_THRESHOLD:
-                    print("No finger detected")
-                    buzzer_on = False  # Don't alert if no finger
-                    
-                    # reset monitor to not polute readings with false data
-                    hr_monitor = HeartRateMonitor(
-                        sample_rate=100,
-                        window_size=50,
-                        smoothing_window=5
-                    )
-                    await asyncio.sleep_ms(500)
-                    continue #skip the rest of the loop and wait for next reading
+    data = {
+        "records": [
+            {
+                "fields": {
+                    "BPM": bpm,
+                    "SpO2": spo2,
+                    "Timestamp": current_datetime_iso()
+                }
+            }
+        ]
+    }
+
+    try:
+        response = urequests.post(data_url, headers=headers, data=json.dumps(data))
+        print("Sent:", bpm, spo2)
+        print(response.text)
+        response.close()
+
+    except:
+        print("Error sending data")
+
+def current_datetime_iso():
+    t = time.localtime()  # (year, month, day, hour, min, sec, weekday, yearday)
+    return "{:04d}-{:02d}-{:02d}T{:02d}:{:02d}:{:02d}".format(t[0], t[1], t[2], t[3], t[4], t[5])
+
+# Age midpoints for 220 - age formula
+age_ranges = {
+    "18-25": 21, "26-35": 30, "36-45": 40,
+    "46-55": 50, "56-65": 60, "65+": 68
+}
+
+# Activity zones as % of max HR (min, max)
+activity_zones = {
+    "sedentary":   (0.50, 0.60),
+    "light":       (0.55, 0.65),
+    "moderate":    (0.60, 0.75),
+    "active":      (0.70, 0.85),
+    "very_active": (0.80, 0.95)
+}
+
+def calc_min_max(age_range, activity_level):
+    age = age_ranges.get(age_range, 40)        # default age 40
+    zone = activity_zones.get(activity_level, (0.60, 0.75))  # default activity moderate
+    max_hr = 220 - age
+    min_bpm = int(max_hr * zone[0])
+    max_bpm = int(max_hr * zone[1])
+    return min_bpm, max_bpm
+
+def get_settings():
+    try:
+        response = urequests.get(settings_url, headers=headers)
+        data = json.loads(response.text)
+        response.close()
+        if data["records"]:
+            fields = data["records"][0]["fields"]
+            age_range = fields.get("Age", "36-45")
+            activity_level = fields.get("Activity", "moderate")
+            min_bpm, max_bpm = calc_min_max(age_range, activity_level)
+            print("Age range:", age_range, "| Activity:", activity_level)
+            print("Calculated - Min BPM:", min_bpm, "Max BPM:", max_bpm)
+            return min_bpm, max_bpm
+    except:
+        print("Error geting settings")
+    return 60, 100  # fallback defaults
+
+# Create monitor
+hr_monitor = HeartRateMonitor(sample_rate=100, window_size=200, smoothing_window=5) #TODO
+
+buzzer_on = False
+
+# Get settings once at startup, then re-check every 60 seconds
+hr_min, hr_max = get_settings()
+settings_timer = 0
+
+# Main loop
+while True:
+    try:
+
+         # Get settings every 60 seconds in case user updated them
+        if settings_timer >= 60:
+            hr_min, hr_max = get_settings()
+            settings_timer = 0
+
+        # Check if sensor has data
+        sensor.check()
+        
+        if sensor.available():
+            # Remove old readings
+            red = sensor.pop_red_from_storage()
+            ir = sensor.pop_ir_from_storage()
+
+            # Check for no finger condition
+            if ir < no_finger_threshold:
+                print("No finger detected")
+                buzzer_on = False  # Don't alert if no finger
                 
-                # Add samples to monitor (both IR and Red)
-                hr_monitor.add_sample(ir, red)
-                
-                # Calculate heart rate and SpO2
-                hr = hr_monitor.calculate_heart_rate()
-                spo2 = hr_monitor.calculate_spo2()
-                
-                # Only send if readings are valid
-                if hr is not None and spo2 is not None:
-                    hr = int(hr)
-                    print(f"HR: {hr} | SpO2: {spo2}%")
-                    
-                    # Send via BLE
-                    hr_data = struct.pack("BB", 0x00, hr)
-                    hr_char.write(hr_data, send_update=True)
-                    spo2_data = struct.pack("B", spo2)
-                    spo2_char.write(spo2_data, send_update=True)
-                    
-                    # Check if out of range
-                    if hr < HR_MIN or hr > HR_MAX:
-                        if not buzzer_on:
-                            print(f"ALERT! HR: {hr}")
-                            buzzer_on = True
-                    else:
-                        buzzer_on = False
+                # reset monitor to not polute readings with false data
+                hr_monitor = HeartRateMonitor(
+                    sample_rate=100,
+                    window_size=200, #TODO
+                    smoothing_window=5
+                )
+                time.sleep(0.5) # wait 0.5 seconds before next reading
+                continue #skip the rest of the loop and wait for next reading
             
-            # Buzzer control
-            if buzzer_on:
-                buzzer.duty_u16(32768) # TODO
-                await asyncio.sleep_ms(200)
-                buzzer.duty_u16(0) # off
-                await asyncio.sleep_ms(200)
-            else:
-                buzzer.duty_u16(0) # off
-                await asyncio.sleep_ms(50)
+            # Add samples to monitor (both IR and Red)
+            hr_monitor.add_sample(ir, red)
+            
+            # Calculate heart rate and SpO2
+            hr = hr_monitor.calculate_heart_rate()
+            spo2 = hr_monitor.calculate_spo2()
+            
+            # Only send or alert if readings are valid
+            if hr is not None and spo2 is not None:
+                hr = int(hr)
+                print(f"HR: {hr} | SpO2: {spo2}%")
 
-        # Catch errors     
-        except Exception as e:
-            print(f"Error: {e}")
-            await asyncio.sleep(1)
+                send_data(hr, spo2)  # Send data to Airtable
+                
+                # Check if out of range
+                if hr < hr_min or hr > hr_max:
+                    if not buzzer_on:
+                        print(f"ALERT! HR: {hr}")
+                        buzzer_on = True
+                else:
+                    buzzer_on = False
+        
+        # Buzzer control
+        if buzzer_on:
+            buzzer.duty_u16(32768) # TODO
+            time.sleep(0.2) # buzzer on for 0.2 seconds
+            buzzer.duty_u16(0) # off
+            time.sleep(0.2) # buzzer off for 0.2 seconds
+        else:
+            buzzer.duty_u16(0) # buzzer off
+            time.sleep(0.05) # wait 0.05 seconds before next reading
 
-# Main code
-async def main():
-    # Setup BLE services
-    hr_service = aioble.Service(HR_SERVICE_UUID)
-    hr_char = aioble.Characteristic(hr_service, HR_CHAR_UUID, read=True, notify=True)
-    
-    spo2_service = aioble.Service(SPO2_SERVICE_UUID)
-    spo2_char = aioble.Characteristic(spo2_service, SPO2_CHAR_UUID, read=True, notify=True)
-    
-    threshold_service = aioble.Service(THRESHOLD_SERVICE_UUID)
-    threshold_char = aioble.Characteristic(threshold_service, THRESHOLD_CHAR_UUID, 
-                                          read=True, write=True, notify=True)
-    
-    aioble.register_services(hr_service, spo2_service, threshold_service)
-    
-    # create async tasks
-    task1 = asyncio.create_task(threshold_task(threshold_char))
-    task2 = asyncio.create_task(sensor_task(hr_char, spo2_char))
-    
-    # run everything (async allows both tasks to run at the same time, more efficient)
-    await asyncio.gather(task1, task2)
+        time.sleep(10)
+        settings_timer += 10
 
-# run the full program until a keyboard interrupt
-try:
-    asyncio.run(main())
-except KeyboardInterrupt:
-    print("Stopped")
-    buzzer.duty_u16(0) # off
+    # Catch errors     
+    except:
+        print(f"Error")
+        time.sleep(1) # wait for 1 second after error before trying again
