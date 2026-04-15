@@ -39,6 +39,13 @@ Activity Level:
 <p id="settingsStatus"></p>
 
 <h2>Heart Rate (BPM)</h2>
+
+Show:
+<button onclick="setRange('hour')">Last Hour</button>
+<button onclick="setRange('day')">Last Day</button>
+<button onclick="setRange('month')">Last Month</button>
+<button onclick="setRange('year')">Last Year</button>
+
 <canvas id="bpmChart"></canvas>
 
 <h2>Blood Oxygen (SpO2 %)</h2>
@@ -53,6 +60,28 @@ Activity Level:
   const SETTINGS_URL = `https://api.airtable.com/v0/${BASE_ID}/settings`;
 
   let bpmChart, spo2Chart;
+  let allBpmPoints = [], allSpo2Points = [];
+  let currentRange = 'day';
+
+  function getCutoff(range) {
+    const now = new Date();
+    if (range === 'hour')  return new Date(now - 1000 * 60 * 60);
+    if (range === 'day')   return new Date(now - 1000 * 60 * 60 * 24);
+    if (range === 'month') return new Date(now - 1000 * 60 * 60 * 24 * 30);
+    if (range === 'year')  return new Date(now - 1000 * 60 * 60 * 24 * 365);
+    return null;
+  }
+
+  function filterPoints(points, range) {
+    const cutoff = getCutoff(range);
+    return points.filter(p => p.x >= cutoff);
+  }
+
+  function setRange(range) {
+    currentRange = range;
+    updateChart("bpmChart", filterPoints(allBpmPoints, range), "BPM", "red");
+    updateChart("spo2Chart", filterPoints(allSpo2Points, range), "SpO2 %", "blue");
+  }
 
   async function loadSettings() {
     try {
@@ -85,7 +114,6 @@ Activity Level:
         headers: { Authorization: `Bearer ${TOKEN}` }
       });
       const getData = await getRes.json();
-
       const fields = { Age: ageRange, Activity: activityLevel };
 
       if (getData.records && getData.records.length > 0) {
@@ -117,22 +145,22 @@ Activity Level:
       });
 
       const data = await response.json();
-      const bpmPoints = [], spo2Points = [];
+      allBpmPoints = [];
+      allSpo2Points = [];
 
       data.records.forEach(record => {
         const f = record.fields;
         if (f.BPM !== undefined && f.SpO2 !== undefined && f.Timestamp) {
-          // Parse ISO timestamp from Pico — treat as local time
           const ts = new Date(f.Timestamp);
-          bpmPoints.push({ x: ts, y: f.BPM });
-          spo2Points.push({ x: ts, y: f.SpO2 });
+          allBpmPoints.push({ x: ts, y: f.BPM });
+          allSpo2Points.push({ x: ts, y: f.SpO2 });
         }
       });
 
       document.getElementById("status").textContent = "Last updated: " + new Date().toLocaleTimeString();
 
-      updateChart("bpmChart", bpmPoints, "BPM", "red");
-      updateChart("spo2Chart", spo2Points, "SpO2 %", "blue");
+      updateChart("bpmChart", filterPoints(allBpmPoints, currentRange), "BPM", "red");
+      updateChart("spo2Chart", filterPoints(allSpo2Points, currentRange), "SpO2 %", "blue");
 
     } catch (err) {
       document.getElementById("status").textContent = "Error: " + err.message;
@@ -152,6 +180,7 @@ Activity Level:
     };
     const options = {
       scales: {
+        y: canvasId === "bpmChart" ? { min: 0, max: 250 } : { min: 70, max: 100 },
         x: {
           type: "time",
           time: {
